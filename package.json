@@ -1,0 +1,25 @@
+{
+  "name": "flick-music-v2",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Flick Music Final: explicit receiver opt-in, white motion halo, compact library and turntable player",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test --test-concurrency=1 tests/legacy.test.js tests/core.test.js tests/receiver-ready.test.js tests/track-metadata.test.js tests/desktop.test.js tests/motion.test.js tests/sounds.test.js tests/sound-http.test.js tests/integration.test.js tests/security.test.js",
+    "test:browser": "node tests/browser-check.cjs",
+    "inspect": "node scripts/admin.js inspect"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1",
+    "express": "5.2.1",
+    "multer": "2.4.0",
+    "socket.io": "4.8.4"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "socket.io-client": "4.8.4"
+  }
+}

@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#10151b" />
+    <title>Flick Music Final · 音乐，随手分享</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/socket.io/socket.io.js" defer></script>
+    <script src="/media.js" defer></script>
+    <script src="/gesture.js" defer></script>
+    <script src="/desktopGesture.js" defer></script>
+    <script src="/soundEffects.js" defer></script>
+    <script src="/transfer.js" defer></script>
+    <script src="/motionBatch.js" defer></script>
+    <script src="/trackMetadata.js" defer></script>
+    <script src="/player.js" defer></script>
+    <script src="/devices.js" defer></script>
+    <script src="/library.js" defer></script>
+    <script src="/motionGesture.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="/">Flick<span> Music</span><small>FINAL</small></a
+        ><span id="socketBadge" class="badge">Socket offline</span>
+      </header>
+      <section class="identity">
+        <p class="eyebrow">YOUR DEVICE / YOUR MUSIC</p>
+        <div class="identity-line">
+          <h1 id="deviceName">正在识别设备…</h1>
+          <button id="rename" class="text-button" disabled>修改昵称</button>
+        </div>
+        <div class="state-row">
+          <span id="registeredBadge" class="badge">等待注册</span
+          ><span id="audioBadge" class="badge">音频未启用</span>
+        </div>
+        <p id="tabWarning" class="hint" hidden>
+          另一标签页正在控制本设备。曲库仍可查看，连接与发送请在最新打开的页面操作。
+        </p>
+      </section>
+      <div class="workspace">
+        <aside class="connections">
+          <section class="pair-panel">
+            <div class="section-title">
+              <h2>当前连接</h2>
+              <span class="eyebrow">PAIRING</span>
+            </div>
+            <strong id="pairLabel">未配对</strong>
+            <p id="pairHint" class="hint">
+              选择在线设备，等待对方接受后开始分享。
+            </p>
+            <button id="disconnectPair" class="small-button" hidden>
+              断开连接
+            </button>
+          </section>
+          <section class="devices-panel">
+            <div class="section-title">
+              <h2>在线设备</h2>
+              <span id="onlineCount" class="subtle">0 台</span>
+            </div>
+            <div id="devices"></div>
+            <p class="hint">这里仅显示设备状态，私人曲库不会公开。</p>
+          </section>
+          <section class="audio-panel">
+            <button id="enableAudio" class="secondary full" disabled>
+              启用音频接收
+            </button>
+            <p id="audioHint" class="hint">配对不等于允许接收。双方需分别点击「启用音频接收」，才可接受对方的歌曲。</p>
+            <button id="enableCues" class="secondary full" type="button">
+              🔊 开启事件提示音
+            </button>
+            <p id="cueStatus" class="hint" role="status">手机浏览器可能要求先点一下开启声音。</p>
+          </section>
+        </aside>
+        <section class="music-panel">
+          <div class="section-title">
+            <div>
+              <p class="eyebrow">MY MUSIC</p>
+              <h2>我的音乐 <span id="musicCount">0</span></h2>
+            </div>
+            <label class="primary upload-button" for="files"
+              >＋ 上传音乐<input
+                id="files"
+                type="file"
+                multiple
+                accept="audio/*,.mp3,.m4a,.mp4,.aac,.wav,.ogg,.oga,.webm,.flac"
+                disabled
+            /></label>
+          </div>
+          <div class="library-toolbar">
+            <p>双指滑动分享 · 单指左滑删除</p>
+            <button id="manage" class="text-button">多选管理</button>
+          </div>
+          
+          <div id="selectionToolbar" class="selection-toolbar" hidden>
+            <span id="selectionCount">已选 0 首</span
+            ><button id="deleteSelected" class="danger-button" disabled>
+              删除选中</button
+            ><button id="exitSelection" class="text-button">退出</button>
+          </div>
+          <div id="notice" class="notice toast" role="status" aria-live="polite" hidden></div>
+          <div id="incomingTrack" class="incoming-banner" hidden>
+            <span>Receiving…</span>
+            <p id="incomingText"></p>
+          </div>
+          <div id="emptyLibrary" class="empty-library">
+            <span aria-hidden="true">♫</span>
+            <h3>把喜欢的音乐放进来</h3>
+            <p>上传本地音频，或连接另一台设备接收歌曲。</p>
+          </div>
+          <div id="musicList" class="music-list"></div>
+          <section class="player-panel" id="playerPanel">
+            <div class="player-topline">
+              <p class="eyebrow">NOW PLAYING</p>
+              <button id="togglePlayerView" type="button" class="player-mode-switch"
+                aria-pressed="false" aria-controls="advancedPlayer">高级模式 ↗</button>
+            </div>
+            <div id="minimalPlayer" class="player-minimal">
+              <h2 id="nowPlaying">从曲库选择一首歌</h2>
+              <p id="playerState" class="hint">一个播放器，播放你的整份曲库。</p>
+              <audio id="audio" controls preload="metadata" playsinline
+                aria-label="当前音乐播放器"></audio>
+            </div>
+            <div id="advancedPlayer" class="player-advanced" hidden>
+              <div class="turntable-shell" role="img" aria-label="黑胶唱片播放器">
+                <div class="turntable-deck">
+                  <div id="vinylDisc" class="vinyl-disc">
+                    <div class="vinyl-center">
+                      <img class="record-label-art" src="/assets/record-label.jpg"
+                        alt="奶龙风格唱片插图" draggable="false"/>
+                    </div>
+                    <span class="disc-spindle" aria-hidden="true"></span>
+                  </div>
+                  <div class="turntable-tonearm" aria-hidden="true">
+                    <span class="arm-pivot"></span>
+                    <span class="arm-shaft"></span>
+                    <span class="arm-head"></span>
+                  </div>
+                  <span class="deck-light" aria-hidden="true"></span>
+                </div>
+              </div>
+              <div class="advanced-track-info">
+                <h2 id="advancedTrackTitle">从曲库选择一首歌</h2>
+                <p id="advancedTrackArtist">未知艺术家</p>
+              </div>
+              <div class="advanced-timeline">
+                <input id="advancedSeek" type="range" min="0" max="100"
+                  value="0" step="0.1" disabled aria-label="播放进度" />
+                <div class="advanced-time-labels">
+                  <span id="advancedElapsed">00:00</span>
+                  <span id="advancedDuration">00:00</span>
+                </div>
+              </div>
+              <div class="advanced-transport">
+                <button id="advancedPrev" type="button" aria-label="上一首" title="上一首">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M5 5v14M19 5 9 12l10 7V5z"/>
+                  </svg>
+                </button>
+                <button id="advancedPlayPause" type="button" class="advanced-primary-play"
+                  aria-label="播放" title="播放或暂停">
+                  <svg class="player-play-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M7 4.5a1.2 1.2 0 0 1 1.8-1.05l11.1 7.5a1.25 1.25 0 0 1 0 2.1l-11.1 7.5A1.2 1.2 0 0 1 7 19.5z"/>
+                  </svg>
+                  <svg class="player-pause-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="6" y="4" width="4" height="16" rx="1.1"/>
+                    <rect x="14" y="4" width="4" height="16" rx="1.1"/>
+                  </svg>
+                </button>
+                <button id="advancedNext" type="button" aria-label="下一首" title="下一首">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M19 5v14M5 5l10 7-10 7V5z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </section>
+        </section>
+      </div>
+
+
+
+
+
+      <details class="advanced-settings" id="advancedSettings">
+        <summary>高级功能 <span>甩歌控制 · 提示音 · 设备设置</span></summary>
+        <div class="advanced-settings-inner">
+      <details class="advanced-panel" id="motionPanel">
+        <summary>Motion Control <span>批量甩歌</span></summary>
+        <p class="hint">先与另一台设备配对。启用后在下方曲库勾选多首音频，选中歌曲显示环绕流动光圈；手机向一侧快速甩动即可按顺序交付。</p>
+        <div class="motion-actions">
+          <button id="enableMotion" type="button" class="primary">Enable Motion Control</button>
+          <button id="demoMotion" type="button" class="secondary">模拟甩动（Mac/Win）</button>
+        </div>
+        <p id="motionStatus" class="hint" role="status" aria-live="polite">未启用运动传感器。</p>
+        <p id="motionHttpsHelp" class="hint">如果显示需要 HTTPS，参阅 <code>README_MOTION_HTTPS.md</code>；你也可以用模拟模式先检查批量发送、动画与音效。</p>
+        <div id="motionControls" class="motion-controls" hidden>
+          <label for="motionDirection">甩动方向</label>
+          <select id="motionDirection">
+            <option value="both">左右方向均可</option>
+            <option value="left">仅向左</option>
+            <option value="right">仅向右</option>
+          </select>
+          <label for="motionThreshold">横向加速度灵敏度：<output id="motionThresholdValue">13</output> m/s²</label>
+          <input id="motionThreshold" type="range" min="8" max="30" step="1" value="13" />
+          <label class="motion-invert"><input type="checkbox" id="motionInvert" /> 左右方向相反时反转传感器方向</label>
+          <div class="motion-actions">
+            <strong id="motionSelectedCount">已选择 0 首</strong>
+            <button id="motionSelectAll" class="secondary" type="button">全选</button>
+            <button id="motionSelectNone" class="secondary" type="button">清空</button>
+          </div>
+          <p class="hint">直接勾选曲库中歌曲右侧的选择框，或点击卡片的非按钮区域。发送过程中不可更改选中歌曲。</p>
+          <div class="motion-actions">
+            <button id="motionSimLeft" class="secondary" type="button">← 模拟左甩</button>
+            <button id="motionSimRight" class="secondary" type="button">模拟右甩 →</button>
+            <button id="disableMotion" class="danger-button" type="button">停止甩动模式</button>
+          </div>
+          <p id="motionProgress" class="hint" role="status" aria-live="polite">尚未开始。</p>
+        </div>
+        <output id="motionDebug" class="motion-debug">加速度：等待采样</output>
+      </details>
+
+      <details class="sound-settings advanced-panel" id="soundSettings">
+        <summary>自定义事件提示音 <span>四种事件 · 全设备共用</span></summary>
+        <p class="hint">上传提示音后保存在电脑主机，所有在线设备自动使用同一音效。播放使用独立声道，不会替换正在播放的歌曲。单个提示音 ≤ 5 MB，自动播放最长 12 秒。</p>
+        <div class="cue-preferences">
+          <label><input id="cuesEnabled" type="checkbox" checked /> 播放事件提示音</label>
+          <label for="cueVolume">音量 <output id="cueVolumeText">40%</output></label>
+          <input id="cueVolume" type="range" min="0" max="100" value="40" />
+        </div>
+        <div class="cue-rows">
+          <div class="cue-row" data-cue="paired">
+            <div><strong>音频 1 · 配对连接成功</strong><small>双方设备</small><p class="cue-name" data-cue-name="paired">默认提示音</p></div>
+            <div class="cue-actions"><label class="secondary cue-upload">更换音频<input type="file" data-cue-upload="paired" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac" /></label><button class="secondary" type="button" data-cue-preview="paired">试听</button><button class="text-button" type="button" data-cue-reset="paired">恢复默认</button></div>
+          </div>
+          <div class="cue-row" data-cue="receiverReady">
+            <div><strong>音频 2 · 启用音频接收</strong><small>本设备</small><p class="cue-name" data-cue-name="receiverReady">默认提示音</p></div>
+            <div class="cue-actions"><label class="secondary cue-upload">更换音频<input type="file" data-cue-upload="receiverReady" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac" /></label><button class="secondary" type="button" data-cue-preview="receiverReady">试听</button><button class="text-button" type="button" data-cue-reset="receiverReady">恢复默认</button></div>
+          </div>
+          <div class="cue-row" data-cue="uploaded">
+            <div><strong>音频 3 · 上传音乐成功</strong><small>本设备</small><p class="cue-name" data-cue-name="uploaded">默认提示音</p></div>
+            <div class="cue-actions"><label class="secondary cue-upload">更换音频<input type="file" data-cue-upload="uploaded" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac" /></label><button class="secondary" type="button" data-cue-preview="uploaded">试听</button><button class="text-button" type="button" data-cue-reset="uploaded">恢复默认</button></div>
+          </div>
+          <div class="cue-row" data-cue="delivered">
+            <div><strong>音频 4 · 音乐传输成功</strong><small>双方设备</small><p class="cue-name" data-cue-name="delivered">默认提示音</p></div>
+            <div class="cue-actions"><label class="secondary cue-upload">更换音频<input type="file" data-cue-upload="delivered" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.webm,.flac" /></label><button class="secondary" type="button" data-cue-preview="delivered">试听</button><button class="text-button" type="button" data-cue-reset="delivered">恢复默认</button></div>
+          </div>
+        </div>
+      </details>
+
+      <details class="advanced-panel" id="trackpadSettings">
+        <summary>触控板方向校准 <span>Mac / Windows</span></summary>
+        <p class="hint">触控板双指横划方向受系统自然滚动和驱动影响。此设置只作用于 Shift + 触控板滑动，不改变鼠标拖动或键盘。</p>
+        <label for="trackpadDirection">触控板方向映射</label>
+        <select id="trackpadDirection">
+          <option value="auto">系统推荐（Mac 反转，Windows 标准）</option>
+          <option value="standard">标准（deltaX 正值对应右）</option>
+          <option value="reversed">反转（deltaX 正值对应左）</option>
+        </select>
+        <p id="trackpadHint" class="hint" role="status"></p>
+      </details>
+
+      <details class="debug-panel dev-diagnostics">
+        <summary>Debug Log <span id="logCount">0 entries</span></summary>
+        <p id="fullDeviceId" class="hint"></p>
+        <ol id="logs"></ol>
+      </details>
+        </div>
+      </details>
+      <footer>
+        <span>FLICK MUSIC / PRIVATE LIBRARIES</span
+        ><span>分享歌曲，保留自己的音乐。</span>
+      </footer>
+    </main>
+    <dialog id="pairDialog">
+      <form method="dialog">
+        <p class="eyebrow">CONNECTION REQUEST</p>
+        <h2>有人想和你连接</h2>
+        <p id="pairRequestText"></p>
+        <p class="hint">接受后可以双向分享指定歌曲，双方曲库仍然私有。</p>
+        <div class="dialog-actions">
+          <button id="rejectPair" type="button" class="secondary">拒绝</button
+          ><button id="acceptPair" type="button" class="primary">接受</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="deleteTrackDialog">
+      <p class="eyebrow">SWIPE TO DELETE</p>
+      <h2>要从我的音乐中删除吗？</h2>
+      <p id="deleteTrackName" class="delete-track-name"></p>
+      <p class="hint">只移除本设备的曲库记录，不会删除其他设备已接收的副本。</p>
+      <div class="dialog-actions">
+        <button id="cancelDeleteTrack" type="button" class="secondary">取消</button>
+        <button id="confirmDeleteTrack" type="button" class="danger-button">确认删除</button>
+      </div>
+    </dialog>
+    <dialog id="renameDialog">
+      <form id="renameForm">
+        <p class="eyebrow">DEVICE NAME</p>
+        <h2>给这台设备起个名字</h2>
+        <label for="nickname">设备昵称</label
+        ><input id="nickname" maxlength="40" required autocomplete="off" />
+        <div class="dialog-actions">
+          <button id="cancelRename" type="button" class="secondary">取消</button
+          ><button type="submit" class="primary">保存</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

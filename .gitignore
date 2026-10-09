@@ -1,0 +1,22 @@
+node_modules/
+storage/*
+!storage/.gitkeep
+!storage/audio-blobs/
+!storage/tmp/
+storage/audio-blobs/*
+!storage/audio-blobs/.gitkeep
+storage/tmp/*
+!storage/tmp/.gitkeep
+/uploads/*
+!uploads/.gitkeep
+test-output/
+
+storage/sound-effects/*
+!storage/sound-effects/.gitkeep
+
+# Local TLS secrets and certificate files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx

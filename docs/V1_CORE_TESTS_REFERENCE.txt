@@ -1,0 +1,225 @@
+"use strict";
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { isLeftSwipe, attach } = require("../public/gesture");
+const { clampTime, prepare, play } = require("../public/media");
+const { SenderTransfer } = require("../public/transfer");
+const start = [
+  { x: 250, y: 100 },
+  { x: 270, y: 160 },
+];
+const swipe = (dx1, dx2, dy1 = 0, dy2 = 0) => [
+  { x: 250 + dx1, y: 100 + dy1 },
+  { x: 270 + dx2, y: 160 + dy2 },
+];
+for (const [name, end, ms, expected] of [
+  ["valid left swipe", swipe(-130, -110), 300, true],
+  ["threshold accepted", swipe(-100, -100), 800, true],
+  ["vertical swipe ignored", swipe(-120, -120, 150, 150), 300, false],
+  ["short swipe ignored", swipe(-20, -20), 200, false],
+  ["slow swipe ignored", swipe(-150, -150), 801, false],
+  ["one stationary finger ignored", swipe(-220, 0), 300, false],
+  ["right swipe ignored", swipe(120, 120), 300, false],
+  [
+    "opposing vertical motion ignored",
+    swipe(-120, -120, 100, -100),
+    300,
+    false,
+  ],
+])
+  test(name, () => assert.equal(isLeftSwipe(start, end, ms), expected));
+test("single finger cannot trigger", () =>
+  assert.equal(isLeftSwipe([start[0]], [swipe(-200, -200)[0]], 200), false));
+test("touchcancel discards the gesture; identifiers survive reordered touch lists", () => {
+  let now = 0,
+    calls = 0;
+  const listeners = {};
+  const area = {
+    classList: { add() {}, remove() {} },
+    addEventListener: (k, v) => {
+      listeners[k] = v;
+    },
+    removeEventListener() {},
+  };
+  attach(
+    area,
+    () => calls++,
+    () => now,
+  );
+  const touch = (id, x) => ({ identifier: id, clientX: x, clientY: id * 30 });
+  const event = (touches, changedTouches = touches) => ({
+    touches,
+    changedTouches,
+    cancelable: true,
+    preventDefault() {},
+  });
+  listeners.touchstart(event([touch(1, 260), touch(2, 270)]));
+  listeners.touchcancel(event([]));
+  now = 300;
+  listeners.touchend(event([], [touch(1, 100), touch(2, 100)]));
+  assert.equal(calls, 0);
+  listeners.touchstart(event([touch(1, 260), touch(2, 270)]));
+  now = 500;
+  listeners.touchend(event([touch(1, 100)], [touch(2, 100)]));
+  listeners.touchend(event([], [touch(1, 100)]));
+  assert.equal(calls, 1);
+  now = 600;
+  listeners.touchstart(event([touch(1, 260), touch(2, 270)]));
+  now = 800;
+  listeners.touchend(event([], [touch(1, 100), touch(2, 100)]));
+  assert.equal(calls, 1);
+});
+class FakeAudio extends EventTarget {
+  constructor() {
+    super();
+    this.src = "/uploads/song.wav";
+    this.paused = false;
+    this.ended = false;
+    this.readyState = 1;
+    this.duration = 10;
+    this.currentTime = 3;
+    this.pauseCount = 0;
+    this.seeking = false;
+  }
+  getAttribute() {
+    return this.src;
+  }
+  load() {
+    this.readyState = 1;
+  }
+  pause() {
+    this.paused = true;
+    this.pauseCount++;
+  }
+  play() {
+    this.paused = false;
+    return Promise.resolve();
+  }
+}
+function fixture() {
+  const audio = new FakeAudio(),
+    notices = [],
+    emitted = [];
+  const socket = { connected: true, emit: (...args) => emitted.push(args) };
+  const sender = new SenderTransfer({
+    audio,
+    socket,
+    notify: (...args) => notices.push(args),
+    makeId: () => "unique-transfer",
+    timeout: 50,
+  });
+  const track = { trackId: "song", originalName: "Song", audioUrl: audio.src };
+  return { audio, notices, emitted, socket, sender, track };
+}
+test("A keeps playing until B acknowledgement, then pauses exactly once", () => {
+  const f = fixture();
+  f.sender.request(f.track, "sender-id");
+  assert.equal(f.audio.pauseCount, 0);
+  f.emitted[0][2]({ ok: true });
+  assert.equal(f.audio.pauseCount, 0);
+  assert.equal(
+    f.sender.success({ transferId: "wrong", trackId: "song" }),
+    false,
+  );
+  f.sender.success({ transferId: "unique-transfer", trackId: "song" });
+  assert.equal(f.audio.pauseCount, 1);
+  f.sender.success({ transferId: "unique-transfer", trackId: "song" });
+  assert.equal(f.audio.pauseCount, 1);
+});
+for (const message of [
+  "No receiving device available",
+  "Receiver not ready",
+  "Tap to allow playback",
+])
+  test(message + ": A continues", () => {
+    const f = fixture();
+    f.sender.request(f.track, "sender-id");
+    f.emitted[0][2]({ ok: false, message });
+    assert.equal(f.audio.pauseCount, 0);
+    assert.equal(f.audio.paused, false);
+    assert.equal(f.sender.pending, null);
+  });
+test("duplicate triggers produce one request", () => {
+  const f = fixture();
+  assert.equal(f.sender.request(f.track, "sender-id"), true);
+  assert.equal(f.sender.request(f.track, "sender-id"), false);
+  assert.equal(f.emitted.length, 1);
+  f.sender.clear();
+});
+test("timeout and disconnect never pause A; stale success is ignored", async () => {
+  const f = fixture();
+  f.sender.request(f.track, "sender-id");
+  await new Promise((r) => setTimeout(r, 70));
+  assert.equal(f.audio.pauseCount, 0);
+  assert.equal(f.sender.pending, null);
+  f.sender.request(f.track, "sender-id");
+  f.socket.connected = false;
+  f.sender.cancel("disconnect");
+  f.sender.success({ transferId: "unique-transfer", trackId: "song" });
+  assert.equal(f.audio.pauseCount, 0);
+});
+test("changed source cannot be paused by stale success", () => {
+  const f = fixture();
+  f.sender.request(f.track, "sender-id");
+  f.audio.src = "/new.wav";
+  f.sender.success({ transferId: "unique-transfer", trackId: "song" });
+  assert.equal(f.audio.pauseCount, 0);
+});
+test("disconnected, unloaded or paused sender refuses transfer", () => {
+  const f = fixture();
+  f.socket.connected = false;
+  assert.equal(f.sender.request(f.track, "sender-id"), false);
+  f.socket.connected = true;
+  assert.equal(f.sender.request(null, "sender-id"), false);
+  f.audio.paused = true;
+  assert.equal(f.sender.request(f.track, "sender-id"), false);
+  assert.equal(f.emitted.length, 0);
+});
+test("near-end seek and invalid times are safely clamped", () => {
+  for (const duration of [0.02, 0.1, 1, 120])
+    for (const time of [
+      -1,
+      0,
+      duration - 0.01,
+      duration,
+      duration + 100,
+      Infinity,
+      NaN,
+    ]) {
+      const target = clampTime(time, duration);
+      assert.ok(target >= 0 && target < duration);
+    }
+  assert.throws(() => clampTime(1, NaN));
+  assert.throws(() => clampTime(1, 0));
+});
+test("receiver waits for metadata before seeking", async () => {
+  const a = new FakeAudio();
+  a.readyState = 0;
+  a.duration = NaN;
+  const pending = prepare(a, a.src, 7, new AbortController().signal);
+  assert.equal(a.currentTime, 3);
+  a.readyState = 1;
+  a.duration = 10;
+  a.dispatchEvent(new Event("loadedmetadata"));
+  assert.equal(await pending, 7);
+  assert.equal(a.currentTime, 7);
+});
+test("missing file, autoplay rejection and cancelled play are failures", async () => {
+  const a = new FakeAudio();
+  a.readyState = 0;
+  a.duration = NaN;
+  const pending = prepare(a, a.src, 7, new AbortController().signal);
+  a.dispatchEvent(new Event("error"));
+  await assert.rejects(pending, /unavailable/);
+  a.play = () =>
+    Promise.reject(
+      Object.assign(new Error("Autoplay blocked"), { name: "NotAllowedError" }),
+    );
+  await assert.rejects(play(a), { name: "NotAllowedError" });
+  a.play = () => new Promise(() => {});
+  const c = new AbortController();
+  const playing = play(a, c.signal);
+  c.abort();
+  await assert.rejects(playing, /cancelled/);
+  assert.equal(a.paused, true);
+});

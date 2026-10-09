@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: flick-music-final-free
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SECURE_COOKIE
+        value: "1"
